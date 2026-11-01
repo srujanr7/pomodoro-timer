@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pomodoro Timer</title>
+<style>
+  :root {
+    --bg: #fdf6f0;
+    --card: #ffffff;
+    --text: #2b2b2b;
+    --muted: #8a8a8a;
+    --accent: #e4572e;
+    --accent-dark: #c4431e;
+    --ring-bg: #f1e4da;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1714;
+      --card: #24201c;
+      --text: #f2ece6;
+      --muted: #9c948c;
+      --ring-bg: #3a332d;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 16px;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 24px;
+    padding: 40px 32px;
+    width: 100%;
+    max-width: 380px;
+    text-align: center;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+  }
+  h1 {
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 24px;
+  }
+  .ring {
+    position: relative;
+    width: 240px;
+    height: 240px;
+    margin: 0 auto 32px;
+  }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 10; }
+  .ring .track { stroke: var(--ring-bg); }
+  .ring .progress {
+    stroke: var(--accent);
+
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.3s linear;
+  }
+  .time {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3.5rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .status {
+    font-size: 0.95rem;
+    color: var(--muted);
+    margin-bottom: 24px;
+    min-height: 1.4em;
+  }
+  .controls { display: flex; gap: 12px; justify-content: center; }
+  button {
+    flex: 1;
+    padding: 14px 0;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 12px;
+    border: 2px solid var(--accent);
+    background: transparent;
+    color: var(--accent);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, opacity 0.15s;
+  }
+
+  button:hover:not(:disabled) { background: var(--accent); color: #fff; }
+  button.primary { background: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { background: var(--accent-dark); border-color: var(--accent-dark); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Pomodoro</h1>
+    <div class="ring">
+      <svg viewBox="0 0 120 120">
+        <circle class="track" cx="60" cy="60" r="52"></circle>
+        <circle class="progress" id="progress" cx="60" cy="60" r="52"></circle>
+      </svg>
+      <div class="time" id="time">25:00</div>
+    </div>
+    <div class="status" id="status">Ready to focus</div>
+    <div class="controls">
+      <button class="primary" id="startBtn">Start</button>
+      <button id="pauseBtn" disabled>Pause</button>
+      <button id="resetBtn">Reset</button>
+    </div>
+  </div>
+
+<script>
+  const DURATION = 25 * 60 * 1000;
+  const timeEl = document.getElementById('time');
+  const statusEl = document.getElementById('status');
+  const progressEl = document.getElementById('progress');
+  const startBtn = document.getElementById('startBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const resetBtn = document.getElementById('resetBtn');
+
+
+  const CIRC = 2 * Math.PI * 52;
+  progressEl.style.strokeDasharray = CIRC;
+
+  let remaining = DURATION;
+  let endTime = null;
+  let intervalId = null;
+
+  function format(ms) {
+    const total = Math.ceil(ms / 1000);
+    const m = String(Math.floor(total / 60)).padStart(2, '0');
+    const s = String(total % 60).padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  function render() {
+    timeEl.textContent = format(remaining);
+    document.title = (intervalId ? '▶ ' : '') + format(remaining) + ' · Pomodoro';
+    progressEl.style.strokeDashoffset = CIRC * (1 - remaining / DURATION);
+  }
+
+  function beep() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      [0, 0.4, 0.8].forEach(t => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = 880;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        gain.gain.setValueAtTime(0.3, ctx.currentTime + t);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.3);
+
+        osc.start(ctx.currentTime + t);
+        osc.stop(ctx.currentTime + t + 0.3);
+      });
+    } catch (e) {}
+  }
+
+  function tick() {
+    remaining = Math.max(0, endTime - Date.now());
+    render();
+    if (remaining === 0) {
+      clearInterval(intervalId);
+      intervalId = null;
+      statusEl.textContent = 'Time’s up! Take a break.';
+      startBtn.disabled = true;
+      pauseBtn.disabled = true;
+      render();
+      beep();
+    }
+  }
+
+  function start() {
+    if (intervalId || remaining === 0) return;
+    endTime = Date.now() + remaining;
+    intervalId = setInterval(tick, 250);
+    statusEl.textContent = 'Focusing…';
+    startBtn.disabled = true;
+    pauseBtn.disabled = false;
+    render();
+  }
+
+  function pause() {
+    if (!intervalId) return;
+
+    clearInterval(intervalId);
+    intervalId = null;
+    remaining = Math.max(0, endTime - Date.now());
+    statusEl.textContent = 'Paused';
+    startBtn.textContent = 'Resume';
+    startBtn.disabled = false;
+    pauseBtn.disabled = true;
+    render();
+  }
+
+  function reset() {
+    clearInterval(intervalId);
+    intervalId = null;
+    remaining = DURATION;
+    statusEl.textContent = 'Ready to focus';
+    startBtn.textContent = 'Start';
+    startBtn.disabled = false;
+    pauseBtn.disabled = true;
+    render();
+  }
+
+  startBtn.addEventListener('click', start);
+  pauseBtn.addEventListener('click', pause);
+  resetBtn.addEventListener('click', reset);
+
+  render();
+</script>
+</body>
+</html>
